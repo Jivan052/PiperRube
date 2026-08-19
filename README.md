@@ -1,4 +1,4 @@
-# PipeRube
+# PiperRube
 
 A small local tool that replaces the two Google Apps Script files: point it at
 an app name (or a name + doc URL), and it researches the real developer docs —
@@ -6,7 +6,7 @@ auth type, MCP support, how constructive the docs are, whether access is
 gated, and a buildability verdict — then ranks everything by an integration
 priority score, the same way the CompR case study does it.
 
-## What it does per app
+## What it does per apps
 
 1. **Discover** — if no URL is given, asks OpenRouter (with web search) for
    the official developer-doc homepage.
