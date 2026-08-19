@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Doc Research Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#faf9f6;
+    --paper-dim:#f0efea;
+    --ink:#111110;
+    --ink-soft:#5c5b57;
+    --ink-faint:#94928c;
+    --line:#d9d7cf;
+    --line-strong:#b9b7ae;
+    --stamp-ready:#111110;
+    --stamp-friction:#8a8880;
+    --stamp-blocked:#c7c5bc;
+    --radius:2px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--ink);color:var(--paper);}
+
+  .wrap{max-width:1180px;margin:0 auto;padding:56px 32px 120px;}
+
+  /* ---------- header ---------- */
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    border-bottom:1px solid var(--ink);
+    padding-bottom:22px;
+    margin-bottom:36px;
+    gap:24px;
+    flex-wrap:wrap;
+  }
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin-bottom:10px;
+  }
+  h1{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;
+    font-size:38px;
+    letter-spacing:-0.02em;
+    margin:0;
+  }
+  header p{
+    max-width:360px;
+    color:var(--ink-soft);
+    font-size:13px;
+    margin:0;
+    text-align:right;
+  }
+
+  /* ---------- input panel ---------- */
+  .panel{
+    border:1px solid var(--ink);
+    margin-bottom:40px;
+  }
+  .panel-head{
+    display:flex;
+    border-bottom:1px solid var(--ink);
+  }
+  .tab{
+    flex:1;
+    padding:14px 20px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    text-align:center;
+    cursor:pointer;
+    color:var(--ink-soft);
+    background:var(--paper-dim);
+    border:none;
+    border-right:1px solid var(--ink);
+    transition:background .15s ease,color .15s ease;
+  }
+  .tab:last-child{border-right:none;}
+  .tab.active{background:var(--ink);color:var(--paper);}
+  .panel-body{padding:24px;}
+  .panel-body.hidden{display:none;}
+
+  .row-input{
+    display:grid;
+    grid-template-columns:1fr 1.4fr 32px;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  input[type=text]{
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px;
+    padding:10px 12px;
+    background:var(--paper);
+    border:1px solid var(--line-strong);
+    border-radius:var(--radius);
+    color:var(--ink);
+    width:100%;
+  }
+  input[type=text]:focus{outline:none;border-color:var(--ink);}
+  input[type=text]::placeholder{color:var(--ink-faint);}
+
+  .remove-row{
+    background:none;
+    border:1px solid var(--line-strong);
+    color:var(--ink-soft);
+    cursor:pointer;
+    font-size:14px;
+    border-radius:var(--radius);
+  }
+  .remove-row:hover{border-color:var(--ink);color:var(--ink);}
+
+  .add-row{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    background:none;
+    border:1px dashed var(--line-strong);
+    color:var(--ink-soft);
+    padding:9px 14px;
+    cursor:pointer;
+    border-radius:var(--radius);
+    margin-top:4px;
+  }
+  .add-row:hover{border-color:var(--ink);color:var(--ink);}
+
+  .csv-drop{
+    border:1px dashed var(--line-strong);
+    padding:36px 20px;
+    text-align:center;
+    color:var(--ink-soft);
+    font-size:13px;
+    border-radius:var(--radius);
+    cursor:pointer;
+  }
+  .csv-drop:hover{border-color:var(--ink);}
+  .csv-drop input{display:none;}
+  .csv-note{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--ink-faint);
+    margin-top:10px;
+  }
+  #csvFileName{color:var(--ink);}
+
+  .panel-foot{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:16px 24px;
+    border-top:1px solid var(--line);
+  }
+  .count-note{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    color:var(--ink-soft);
+  }
+  .run-btn{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    background:var(--ink);
+    color:var(--paper);
+    border:1px solid var(--ink);
+    padding:12px 26px;
+    cursor:pointer;
+    border-radius:var(--radius);
+    transition:opacity .15s ease;
+  }
+  .run-btn:hover{opacity:.82;}
+  .run-btn:disabled{opacity:.35;cursor:default;}
+
+  /* ---------- status line ---------- */
+  .status-line{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    color:var(--ink-soft);
+    margin-bottom:18px;
+    min-height:16px;
+  }
+  .status-line .dot{
+    display:inline-block;width:6px;height:6px;border-radius:50%;
+    background:var(--ink);margin-right:8px;
+    animation:pulse 1.1s infinite ease-in-out;
+  }
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.15;}}
+
+  /* ---------- results ---------- */
+  .filter-bar{
+    display:flex;
+    align-items:flex-end;
+    gap:18px;
+    flex-wrap:wrap;
+    padding:14px 0 18px;
+    border-bottom:1px solid var(--line);
+    margin-bottom:4px;
+  }
+  .filter-field{display:flex;flex-direction:column;gap:5px;}
+  .filter-field label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+  }
+  .filter-field select{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    padding:7px 10px;
+    background:var(--paper);
+    border:1px solid var(--line-strong);
+    border-radius:var(--radius);
+    color:var(--ink);
+    min-width:140px;
+  }
+  .filter-field select:focus{outline:none;border-color:var(--ink);}
+  .clear-filters{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    background:none;
+    border:1px solid var(--line-strong);
+    color:var(--ink-soft);
+    padding:8px 12px;
+    cursor:pointer;
+    border-radius:var(--radius);
+    align-self:flex-end;
+  }
+  .clear-filters:hover{border-color:var(--ink);color:var(--ink);}
+  .filter-count{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--ink-faint);
+    align-self:flex-end;
+    margin-left:auto;
+  }
+
+  .results-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:14px;
+  }
+  .results-head h2{
+    font-family:'Space Grotesk',sans-serif;
+    font-size:20px;
+    margin:0;
+  }
+  .export-btn{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    background:none;
+    border:1px solid var(--line-strong);
+    color:var(--ink-soft);
+    padding:8px 14px;
+    cursor:pointer;
+    border-radius:var(--radius);
+  }
+  .export-btn:hover{border-color:var(--ink);color:var(--ink);}
+
+  table{width:100%;border-collapse:collapse;}
+  thead th{
+    text-align:left;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    border-bottom:1px solid var(--ink);
+    padding:10px 10px;
+    white-space:nowrap;
+  }
+  tbody tr{border-bottom:1px solid var(--line);cursor:pointer;}
+  tbody tr:hover{background:var(--paper-dim);}
+  tbody td{padding:12px 10px;vertical-align:top;font-size:13px;}
+  td.app-name{font-weight:600;font-family:'Space Grotesk',sans-serif;font-size:14px;}
+  td.mono{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-soft);}
+
+  .priority-cell{width:120px;}
+  .priority-bar-track{
+    height:5px;background:var(--paper-dim);border:1px solid var(--line);
+    position:relative;margin-bottom:4px;
+  }
+  .priority-bar-fill{height:100%;background:var(--ink);}
+  .priority-num{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-soft);}
+
+  .stamp{
+    display:inline-block;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    padding:4px 8px;
+    border:1px solid currentColor;
+    border-radius:var(--radius);
+  }
+  .stamp.ready{color:var(--stamp-ready);}
+  .stamp.friction{color:var(--stamp-friction);}
+  .stamp.blocked{color:var(--stamp-blocked);border-style:dashed;}
+  .stamp.unknown{color:var(--ink-faint);border-style:dotted;}
+
+  .conf-tag{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+  .conf-tag.low{color:var(--ink);font-weight:600;}
+  .conf-tag.low::before{content:"! ";}
+
+  .pending-row td{color:var(--ink-faint);font-style:italic;}
+  .error-row td{color:var(--ink-soft);}
+
+  .detail-row td{
+    background:var(--paper-dim);
+    border-bottom:1px solid var(--line);
+    padding:16px 10px 22px;
+  }
+  .detail-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:18px 32px;
+  }
+  .detail-block h4{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    margin:0 0 6px;
+  }
+  .detail-block p{margin:0;font-size:12.5px;color:var(--ink-soft);}
+  .notes-list{margin:0;padding-left:16px;font-size:12.5px;color:var(--ink-soft);}
+  .notes-list li{margin-bottom:3px;}
+  .unverified-tag{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    border:1px solid var(--line-strong);
+    padding:1px 4px;
+    border-radius:var(--radius);
+  }
+  .recheck-table{width:100%;border-collapse:collapse;margin-top:6px;}
+  .recheck-table th,.recheck-table td{
+    text-align:left;font-size:11.5px;padding:6px 8px;
+    border:1px solid var(--line);
+  }
+  .recheck-table th{font-family:'JetBrains Mono',monospace;color:var(--ink-faint);font-weight:500;}
+
+  .empty-state{
+    border:1px dashed var(--line-strong);
+    padding:48px 20px;
+    text-align:center;
+    color:var(--ink-faint);
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+  }
+
+  a.doc-link{color:var(--ink-soft);text-decoration:underline;text-decoration-color:var(--line-strong);}
+  a.doc-link:hover{color:var(--ink);}
+
+  footer{
+    margin-top:60px;
+    padding-top:16px;
+    border-top:1px solid var(--line);
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--ink-faint);
+  }
+
+  @media (max-width:720px){
+    .row-input{grid-template-columns:1fr;}
+    .detail-grid{grid-template-columns:1fr;}
+    header{flex-direction:column;align-items:flex-start;}
+    header p{text-align:left;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="eyebrow">Doc Research Portal</div>
+      <h1>Can we build on this today?</h1>
+    </div>
+    <p>Point it at an app name and it reads the real developer docs — auth, MCP support, doc depth, and gating — then ranks what's worth integrating first.</p>
+  </header>
+
+  <div class="panel">
+    <div class="panel-head">
+      <button class="tab active" data-tab="manual">Manual entry</button>
+      <button class="tab" data-tab="csv">Import CSV</button>
+    </div>
+
+    <div class="panel-body" id="manualPanel">
+      <div id="rowsContainer"></div>
+      <button class="add-row" id="addRowBtn">+ add app</button>
+    </div>
+
+    <div class="panel-body hidden" id="csvPanel">
+      <label class="csv-drop" for="csvInput">
+        <div>Drop a CSV here, or click to choose one</div>
+        <div class="csv-note">Columns: <strong>app_name</strong>, <strong>url</strong> (url optional — left blank, it gets discovered) &nbsp;·&nbsp; <span id="csvFileName">no file selected</span></div>
+        <input type="file" id="csvInput" accept=".csv" />
+      </label>
+    </div>
+
+    <div class="panel-foot">
+      <span class="count-note" id="countNote">0 apps queued</span>
+      <button class="run-btn" id="runBtn" disabled>Run research</button>
+    </div>
+  </div>
+
+  <div class="status-line" id="statusLine"></div>
+
+  <div id="resultsSection" style="display:none;">
+    <div class="results-head">
+      <h2>Findings</h2>
+      <button class="export-btn" id="exportBtn">Export CSV</button>
+    </div>
+
+    <div class="filter-bar" id="filterBar">
+      <div class="filter-field">
+        <label for="filterVerdict">Verdict</label>
+        <select id="filterVerdict"><option value="all">All</option></select>
+      </div>
+      <div class="filter-field">
+        <label for="filterConfidence">Confidence</label>
+        <select id="filterConfidence"><option value="all">All</option></select>
+      </div>
+      <div class="filter-field">
+        <label for="filterAuth">Auth</label>
+        <select id="filterAuth"><option value="all">All</option></select>
+      </div>
+      <div class="filter-field">
+        <label for="filterMcp">MCP</label>
+        <select id="filterMcp"><option value="all">All</option></select>
+      </div>
+      <button class="clear-filters" id="clearFiltersBtn">Clear filters</button>
+      <span class="filter-count" id="filterCount"></span>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>App</th>
+          <th>Verdict</th>
+          <th>Priority</th>
+          <th>Confidence</th>
+          <th>Auth</th>
+          <th>MCP</th>
+          <th>Self-serve</th>
+          <th>Doc quality</th>
+          <th>Doc</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="empty-state" id="emptyState">No research run yet. Add apps above and hit Run.</div>
+
+  <footer>doc-research-portal · results are model-generated research, verify before you commit engineering time</footer>
+</div>
+
+<script>
+const API_BASE = ''; // same-origin: FastAPI serves this file
+let rowCount = 0;
+let csvItems = null;
+let lastResults = []; // for CSV export
+
+// ---------- tabs ----------
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    const which = tab.dataset.tab;
+    document.getElementById('manualPanel').classList.toggle('hidden', which!=='manual');
+    document.getElementById('csvPanel').classList.toggle('hidden', which!=='csv');
+    updateRunState();
+  });
+});
+
+// ---------- manual rows ----------
+function addRow(appVal='', urlVal=''){
+  rowCount++;
+  const div = document.createElement('div');
+  div.className = 'row-input';
+  div.innerHTML = `
+    <input type="text" placeholder="App name (e.g. Notion)" class="app-input" value="${escapeAttr(appVal)}">
+    <input type="text" placeholder="Doc URL (optional — auto-discovered if blank)" class="url-input" value="${escapeAttr(urlVal)}">
+    <button class="remove-row" title="remove">×</button>
+  `;
+  div.querySelector('.remove-row').addEventListener('click', ()=>{ div.remove(); updateRunState(); });
+  div.querySelectorAll('input').forEach(i=>i.addEventListener('input', updateRunState));
+  document.getElementById('rowsContainer').appendChild(div);
+  updateRunState();
+}
+document.getElementById('addRowBtn').addEventListener('click', ()=>addRow());
+addRow(); addRow(); addRow();
+
+function escapeAttr(s){ return String(s).replace(/"/g,'&quot;'); }
+
+// ---------- csv ----------
+document.getElementById('csvInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  document.getElementById('csvFileName').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = () => {
+    csvItems = parseCsv(reader.result);
+    updateRunState();
+  };
+  reader.readAsText(file);
+});
+
+function parseCsv(text){
+  const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
+  if(lines.length===0) return [];
+  const startIdx = /app.*name/i.test(lines[0]) ? 1 : 0;
+  const items = [];
+  for(let i=startIdx;i<lines.length;i++){
+    const cols = lines[i].split(',').map(c=>c.trim().replace(/^"|"$/g,''));
+    if(!cols[0]) continue;
+    items.push({app_name: cols[0], url: cols[1] || null});
+  }
+  return items;
+}
+
+// ---------- run state ----------
+function currentItems(){
+  const activeTab = document.querySelector('.tab.active').dataset.tab;
+  if(activeTab==='csv'){
+    return csvItems || [];
+  }
+  const items = [];
+  document.querySelectorAll('#rowsContainer .row-input').forEach(row=>{
+    const app_name = row.querySelector('.app-input').value.trim();
+    const url = row.querySelector('.url-input').value.trim();
+    if(app_name) items.push({app_name, url: url || null});
+  });
+  return items;
+}
+
+function updateRunState(){
+  const items = currentItems();
+  document.getElementById('countNote').textContent = `${items.length} app${items.length===1?'':'s'} queued`;
+  document.getElementById('runBtn').disabled = items.length===0;
+}
+
+// ---------- run pipeline ----------
+document.getElementById('runBtn').addEventListener('click', runResearch);
+
+async function runResearch(){
+  const items = currentItems();
+  if(items.length===0) return;
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('resultsSection').style.display = 'block';
+  const body = document.getElementById('resultsBody');
+  body.innerHTML = '';
+  lastResults = [];
+
+  const statusLine = document.getElementById('statusLine');
+  const runBtn = document.getElementById('runBtn');
+  runBtn.disabled = true;
+
+  // seed pending rows in queued order
+  items.forEach(it=>{
+    const tr = document.createElement('tr');
+    tr.className = 'pending-row';
+    tr.id = 'row-' + slug(it.app_name);
+    tr.innerHTML = `<td class="app-name">${escapeHtml(it.app_name)}</td><td colspan="8">queued…</td>`;
+    body.appendChild(tr);
+  });
+
+  let done = 0;
+  statusLine.innerHTML = `<span class="dot"></span>researching ${done}/${items.length}…`;
+
+  try{
+    const resp = await fetch(API_BASE + '/api/analyze', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({items})
+    });
+    if(!resp.ok){
+      const t = await resp.text();
+      throw new Error(t || ('HTTP ' + resp.status));
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while(true){
+      const {value, done: streamDone} = await reader.read();
+      if(streamDone) break;
+      buffer += decoder.decode(value, {stream:true});
+      let lines = buffer.split('\n');
+      buffer = lines.pop();
+      for(const line of lines){
+        if(!line.trim()) continue;
+        const obj = JSON.parse(line);
+        renderRow(obj);
+        lastResults.push(obj);
+        done++;
+        statusLine.innerHTML = `<span class="dot"></span>researching ${done}/${items.length}…`;
+      }
+    }
+    if(buffer.trim()){
+      const obj = JSON.parse(buffer);
+      renderRow(obj);
+      lastResults.push(obj);
+    }
+
+    statusLine.textContent = `done — ${lastResults.length} app${lastResults.length===1?'':'s'} researched, sorted by integration priority.`;
+    populateFilters();
+    applyFiltersAndRender();
+  }catch(err){
+    statusLine.textContent = 'error: ' + err.message;
+  }finally{
+    runBtn.disabled = false;
+  }
+}
+
+function slug(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,'-'); }
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function stampClass(verdict){
+  if(verdict==='Ready today') return 'ready';
+  if(verdict==='Ready with friction') return 'friction';
+  if(verdict==='Blocked') return 'blocked';
+  return 'unknown';
+}
+
+function renderRow(obj){
+  const tr = document.getElementById('row-' + slug(obj.app_name));
+  if(!tr) return;
+  tr.className = obj.error ? 'error-row' : '';
+
+  if(obj.error){
+    tr.innerHTML = `<td class="app-name">${escapeHtml(obj.app_name)}</td><td colspan="8">error — ${escapeHtml(obj.error)}</td>`;
+    return;
+  }
+
+  const priorityPct = Math.max(0, Math.min(100, obj.priority_score || 0));
+  const confClass = obj.confidence === 'Low' ? 'low' : '';
+  const docCell = obj.doc_url
+    ? `<a class="doc-link" href="${escapeAttr(obj.doc_url)}" target="_blank" rel="noopener">↗</a>`
+    : '—';
+
+  tr.innerHTML = `
+    <td class="app-name">${escapeHtml(obj.app_name)}</td>
+    <td><span class="stamp ${stampClass(obj.verdict)}">${escapeHtml(obj.verdict || 'Unknown')}</span></td>
+    <td class="priority-cell">
+      <div class="priority-bar-track"><div class="priority-bar-fill" style="width:${priorityPct}%"></div></div>
+      <span class="priority-num">${priorityPct}/100</span>
+    </td>
+    <td><span class="conf-tag ${confClass}">${escapeHtml(obj.confidence || '—')}</span></td>
+    <td class="mono">${escapeHtml(obj.auth_type || '—')}</td>
+    <td class="mono">${escapeHtml(obj.mcp_available || '—')}${obj.mcp_url ? ` <a class="doc-link" href="${escapeAttr(obj.mcp_url)}" target="_blank" rel="noopener">↗</a>` : ''}</td>
+    <td class="mono">${escapeHtml(obj.self_serve || '—')}</td>
+    <td class="mono">${obj.doc_quality_score != null ? obj.doc_quality_score + '/10' : '—'}</td>
+    <td>${docCell}</td>
+  `;
+  tr.dataset.detail = 'closed';
+  tr.onclick = (e) => { if(e.target.tagName==='A') return; toggleDetail(obj); };
+}
+
+function toggleDetail(obj){
+  const rowId = 'row-' + slug(obj.app_name);
+  const tr = document.getElementById(rowId);
+  const existing = document.getElementById('detail-' + slug(obj.app_name));
+  if(existing){ existing.remove(); return; }
+
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'detail-row';
+  detailTr.id = 'detail-' + slug(obj.app_name);
+  const td = document.createElement('td');
+  td.colSpan = 9;
+
+  let recheckHtml = '';
+  if(obj.recheck && !obj.recheck.error){
+    recheckHtml = `
+      <div class="detail-block" style="grid-column:1 / -1;">
+        <h4>Low-confidence recheck</h4>
+        <table class="recheck-table">
+          <thead><tr><th>App</th><th>Fields re-checked</th><th>Result</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>${escapeHtml(obj.app_name)}</td>
+              <td>${escapeHtml((obj.recheck.fields_rechecked||[]).join(', '))}</td>
+              <td>${escapeHtml(obj.recheck.result || '')}</td>
+              <td>${escapeHtml(obj.recheck.note || '')}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`;
+  } else if(obj.recheck && obj.recheck.error){
+    recheckHtml = `<div class="detail-block" style="grid-column:1 / -1;"><h4>Recheck</h4><p>failed: ${escapeHtml(obj.recheck.error)}</p></div>`;
+  }
+
+  td.innerHTML = `
+    <div class="detail-grid">
+      <div class="detail-block"><h4>Gating notes</h4><p>${escapeHtml(obj.gating_notes || '—')}</p></div>
+      <div class="detail-block"><h4>MCP note</h4><p>${escapeHtml(obj.mcp_note || '—')}</p></div>
+      <div class="detail-block"><h4>Required fields</h4><p>${escapeHtml((obj.required_fields||[]).join(', ') || '—')}</p></div>
+      <div class="detail-block"><h4>Doc URL</h4><p>${obj.doc_url ? `<a class="doc-link" href="${escapeAttr(obj.doc_url)}" target="_blank" rel="noopener">${escapeHtml(obj.doc_url)}</a>${obj.doc_url_unverified ? ' <span class="unverified-tag">unverified</span>' : ''}` : '—'}</p></div>
+      <div class="detail-block"><h4>MCP URL</h4><p>${obj.mcp_url ? `<a class="doc-link" href="${escapeAttr(obj.mcp_url)}" target="_blank" rel="noopener">${escapeHtml(obj.mcp_url)}</a>` : '—'}</p></div>
+      <div class="detail-block" style="grid-column:1 / -1;"><h4>Notes</h4>${
+        (obj.notes && obj.notes.length)
+          ? `<ul class="notes-list">${obj.notes.map(n=>`<li>${escapeHtml(n)}</li>`).join('')}</ul>`
+          : '<p>—</p>'
+      }</div>
+      ${recheckHtml}
+    </div>
+  `;
+  detailTr.appendChild(td);
+  tr.after(detailTr);
+}
+
+// ---------- filters ----------
+const filterIds = { verdict:'filterVerdict', confidence:'filterConfidence', auth:'filterAuth', mcp:'filterMcp' };
+const filterKeys = { verdict:'verdict', confidence:'confidence', auth:'auth_type', mcp:'mcp_available' };
+
+function uniqueSorted(key){
+  return [...new Set(lastResults.map(r=>r[key]).filter(v=>v!=null && v!==''))].sort();
+}
+
+function populateFilters(){
+  Object.keys(filterIds).forEach(f=>{
+    const select = document.getElementById(filterIds[f]);
+    const current = select.value;
+    const values = uniqueSorted(filterKeys[f]);
+    select.innerHTML = '<option value="all">All</option>' + values.map(v=>`<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('');
+    select.value = values.includes(current) ? current : 'all';
+  });
+}
+
+function applyFiltersAndRender(){
+  const f = {
+    verdict: document.getElementById('filterVerdict').value,
+    confidence: document.getElementById('filterConfidence').value,
+    auth: document.getElementById('filterAuth').value,
+    mcp: document.getElementById('filterMcp').value,
+  };
+  const filtered = lastResults.filter(r =>
+    (f.verdict === 'all' || r.verdict === f.verdict) &&
+    (f.confidence === 'all' || r.confidence === f.confidence) &&
+    (f.auth === 'all' || r.auth_type === f.auth) &&
+    (f.mcp === 'all' || r.mcp_available === f.mcp)
+  );
+  const sorted = [...filtered].sort((a,b)=>(b.priority_score||0)-(a.priority_score||0));
+
+  const body = document.getElementById('resultsBody');
+  body.innerHTML = '';
+  sorted.forEach(obj=>{
+    const tr = document.createElement('tr');
+    tr.id = 'row-' + slug(obj.app_name);
+    body.appendChild(tr);
+    renderRow(obj);
+  });
+  document.getElementById('filterCount').textContent = `${sorted.length} of ${lastResults.length} shown`;
+}
+
+Object.values(filterIds).forEach(id=>{
+  document.getElementById(id).addEventListener('change', applyFiltersAndRender);
+});
+document.getElementById('clearFiltersBtn').addEventListener('click', ()=>{
+  Object.values(filterIds).forEach(id=> document.getElementById(id).value = 'all');
+  applyFiltersAndRender();
+});
+
+// ---------- export ----------
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  if(lastResults.length===0) return;
+  const cols = ['app_name','verdict','priority_score','confidence','auth_type','mcp_available','mcp_url','self_serve','doc_quality_score','gating_notes','doc_url','notes'];
+  const csvRows = [cols.join(',')];
+  lastResults.forEach(r=>{
+    csvRows.push(cols.map(c=>{
+      let v = r[c];
+      if(v==null) v = '';
+      if(Array.isArray(v)) v = v.join(' | ');
+      v = String(v).replace(/"/g,'""');
+      return `"${v}"`;
+    }).join(','));
+  });
+  const blob = new Blob([csvRows.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'doc-research-results.csv';
+  a.click();
+});
+
+updateRunState();
+</script>
+</body>
+</html>
