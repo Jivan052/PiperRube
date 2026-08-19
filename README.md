@@ -1,4 +1,4 @@
-# Doc Research Portal
+# PipeRube
 
 A small local tool that replaces the two Google Apps Script files: point it at
 an app name (or a name + doc URL), and it researches the real developer docs —
