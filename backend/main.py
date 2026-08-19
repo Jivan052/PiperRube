@@ -33,6 +33,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 from dotenv import load_dotenv
@@ -41,7 +42,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+# Loads OPENROUTER_API_KEY (and anything else) from a local .env file if
+# present. On Render this is a no-op — it just won't find a .env file, and
+# the OPENROUTER_API_KEY you set in Render's Environment tab is already
+# injected into the process environment directly.
+load_dotenv()
 
 # --------------------------------------------------------------------------
 # Config
@@ -130,10 +135,68 @@ def call_openrouter(payload: dict, api_key: str) -> str:
     return content
 
 
+def _parse_json_or_none(raw: str):
+    cleaned = re.sub(r"^```json\s*|```\s*$", "", raw.strip(), flags=re.I).strip()
+    if not cleaned:
+        return None
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None
+
+
 def call_openrouter_json(payload: dict, api_key: str) -> dict:
     raw = call_openrouter(payload, api_key)
-    cleaned = re.sub(r"^```json\s*|```$", "", raw.strip(), flags=re.I).strip()
-    return json.loads(cleaned)
+    parsed = _parse_json_or_none(raw)
+    if parsed is not None:
+        return parsed
+
+    # First attempt came back empty/unparsable (e.g. the model returned an
+    # empty code fence, or refused). Retry once with an explicit nudge —
+    # this alone fixes it most of the time — and if it fails again, raise
+    # an error that actually shows what the model returned instead of a
+    # bare "Expecting value: line 1 column 1 (char 0)".
+    retry_payload = dict(payload)
+    retry_payload["messages"] = payload["messages"] + [
+        {
+            "role": "user",
+            "content": "Your previous response was empty or not valid JSON. "
+                       "Respond with ONLY the raw JSON object matching the schema — "
+                       "no code fences, no commentary, no empty content.",
+        }
+    ]
+    raw_retry = call_openrouter(retry_payload, api_key)
+    parsed_retry = _parse_json_or_none(raw_retry)
+    if parsed_retry is not None:
+        return parsed_retry
+
+    raise RuntimeError(
+        f"Model did not return parsable JSON after retry. "
+        f"First response: {raw[:300]!r} | Retry response: {raw_retry[:300]!r}"
+    )
+
+
+def web_search_tool(
+    max_results: int = 5,
+    search_context_size: str = "medium",
+    allowed_domains: Optional[list[str]] = None,
+    excluded_domains: Optional[list[str]] = None,
+) -> dict:
+    """
+    Builds an OpenRouter web-search tool block using the CURRENT
+    `openrouter:web_search` method (not the legacy `plugins: [{id:"web"}]`
+    format). This is what makes domain filtering possible, and capping
+    max_results / search_context_size is the main lever for keeping input
+    token usage (and therefore cost) down — every result injected into
+    context is billed as input tokens, so fewer/smaller results = cheaper
+    calls, at the cost of slightly less context for the model to reason over.
+    """
+    params: dict = {"max_results": max_results, "search_context_size": search_context_size}
+    if allowed_domains:
+        params["allowed_domains"] = allowed_domains
+    if excluded_domains:
+        params["excluded_domains"] = excluded_domains
+    return {"type": "openrouter:web_search", "parameters": params}
 
 
 # --------------------------------------------------------------------------
@@ -164,6 +227,16 @@ def extract_url(text: str) -> str:
     return match.group(0).rstrip(".,)") if match else ""
 
 
+def root_domain(url: str) -> str:
+    """'https://developers.hubspot.com/docs/x' -> 'hubspot.com'"""
+    try:
+        host = urlparse(url).netloc.lower()
+        parts = host.split(".")
+        return ".".join(parts[-2:]) if len(parts) >= 2 else host
+    except Exception:
+        return ""
+
+
 def discover_url(app_name: str, api_key: str) -> str:
     prompt = (
         f'Find the OFFICIAL developer documentation homepage URL for "{app_name}". '
@@ -174,7 +247,7 @@ def discover_url(app_name: str, api_key: str) -> str:
         "model": DISCOVER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
-        "plugins": [{"id": "web"}],
+        "tools": [web_search_tool(max_results=5, search_context_size="low")],
         "max_tokens": 60,
     }
     text = call_openrouter(payload, api_key)
@@ -299,7 +372,7 @@ def classify(app_name: str, url: str, fetch_meta: dict, api_key: str) -> dict:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0,
             "response_format": {"type": "json_schema", "json_schema": CLASSIFY_SCHEMA},
-            "plugins": [{"id": "web"}],
+            "tools": [web_search_tool(max_results=4, search_context_size="low")],
             "max_tokens": 600,
         }
 
@@ -309,6 +382,20 @@ def classify(app_name: str, url: str, fetch_meta: dict, api_key: str) -> dict:
 # --------------------------------------------------------------------------
 # MCP lookup — always web-search-grounded, never guessed from page text,
 # and the returned URL is verified live before it's trusted.
+#
+# FIX: this now runs in two passes instead of one:
+#   Pass 1 — search with github.com EXCLUDED, explicitly asking for the
+#            product's own documentation domain. This is what stops
+#            "hubspot mcp" from just handing back a GitHub repo, since
+#            GitHub is the easiest, most-indexed result for almost any
+#            MCP query and the model has no reason to prefer official
+#            docs unless we structurally remove GitHub as an option first.
+#   Pass 2 — only runs if pass 1 finds nothing verifiable. This one
+#            allows GitHub, for the genuinely common case where a
+#            product's MCP server only exists as an open-source repo
+#            with no dedicated marketing/doc page. Falling back here
+#            is flagged in mcp_note so it's visibly a fallback, not
+#            presented as an official docs page.
 # --------------------------------------------------------------------------
 
 MCP_SCHEMA = {
@@ -320,9 +407,9 @@ MCP_SCHEMA = {
             "mcp_available": {"type": "string", "enum": ["Yes", "No", "Unknown"]},
             "mcp_url": {
                 "type": "string",
-                "description": "Direct URL to the official MCP server (their own docs, GitHub repo, or MCP registry listing). Empty string if none found.",
+                "description": "Direct URL to the MCP server info. Empty string if none found.",
             },
-            "mcp_note": {"type": "string", "description": "One short clause, e.g. 'Official server, npm package'. Empty if not available."},
+            "mcp_note": {"type": "string", "description": "One short clause about the source. Empty if not available."},
         },
         "required": ["mcp_available", "mcp_url", "mcp_note"],
         "additionalProperties": False,
@@ -330,36 +417,56 @@ MCP_SCHEMA = {
 }
 
 
-def discover_mcp(app_name: str, api_key: str, refine: bool = False) -> dict:
-    base = (
-        f'Search the web for an official or well-known Model Context Protocol (MCP) server for '
-        f'"{app_name}". Only report mcp_available="Yes" with a URL if you find a real, specific '
-        f"page confirming it (their docs, or the official MCP registry/directory). "
-        f"Do NOT construct or guess a plausible-looking URL — only report one you actually found "
-        f"via search. If you can't confirm one exists, return mcp_available=\"No\" and an empty mcp_url."
-    )
-    if refine:
-        base += f' Try a more specific search this time, e.g. "{app_name} mcp server github" or "{app_name} model context protocol".'
+def _mcp_search_pass(app_name: str, api_key: str, exclude_github: bool, product_domain: str = "") -> dict:
+    if exclude_github:
+        domain_hint = f' The product\'s own site is around "{product_domain}" — prefer that domain if relevant.' if product_domain else ""
+        prompt = (
+            f'Search the web for the OFFICIAL Model Context Protocol (MCP) documentation page for '
+            f'"{app_name}", published on the product\'s OWN website (e.g. a docs.*, developer.*, or '
+            f"help.* subdomain of their own domain) — NOT a GitHub repository, NOT a third-party "
+            f"directory or blog.{domain_hint} Only report mcp_available=\"Yes\" if you find a real, "
+            f"specific page confirming this on their own site. Do NOT construct or guess a plausible "
+            f'URL — only report one you actually found. If the only source you can find is GitHub or '
+            f'a third party, return mcp_available="No" and an empty mcp_url — that will be checked '
+            f"separately."
+        )
+    else:
+        prompt = (
+            f'Search the web for an MCP (Model Context Protocol) server for "{app_name}" — this time '
+            f"a GitHub repository or third-party listing is acceptable if that's the only source that "
+            f"exists (common for open-source MCP servers with no dedicated doc page). Only report "
+            f'mcp_available="Yes" with a URL if you find a real, specific page confirming it. Do NOT '
+            f"guess a plausible-looking URL."
+        )
 
+    excluded = ["github.com"] if exclude_github else None
     payload = {
         "model": MCP_MODEL,
-        "messages": [{"role": "user", "content": base}],
+        "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
         "response_format": {"type": "json_schema", "json_schema": MCP_SCHEMA},
-        "plugins": [{"id": "web"}],
+        "tools": [web_search_tool(max_results=5, search_context_size="medium", excluded_domains=excluded)],
         "max_tokens": 250,
     }
-    result = call_openrouter_json(payload, api_key)
+    return call_openrouter_json(payload, api_key)
 
-    if result.get("mcp_available") == "Yes" and result.get("mcp_url"):
-        if verify_url(result["mcp_url"]):
-            return result
-        if not refine:
-            return discover_mcp(app_name, api_key, refine=True)
-        # gave up after one refine attempt — don't show an unverified link
-        return {"mcp_available": "Unknown", "mcp_url": "", "mcp_note": "Candidate link found but could not be verified live."}
 
-    return result
+def discover_mcp(app_name: str, api_key: str, product_domain: str = "") -> dict:
+    # Pass 1: official docs domain only (GitHub excluded)
+    result = _mcp_search_pass(app_name, api_key, exclude_github=True, product_domain=product_domain)
+
+    if result.get("mcp_available") == "Yes" and result.get("mcp_url") and verify_url(result["mcp_url"]):
+        result["mcp_note"] = (result.get("mcp_note") or "").strip() or "Official documentation page."
+        return result
+
+    # Pass 2: fallback, GitHub allowed, explicitly labeled as a fallback
+    fallback = _mcp_search_pass(app_name, api_key, exclude_github=False)
+    if fallback.get("mcp_available") == "Yes" and fallback.get("mcp_url") and verify_url(fallback["mcp_url"]):
+        note = (fallback.get("mcp_note") or "").strip()
+        fallback["mcp_note"] = f"(No dedicated docs page found) {note}".strip()
+        return fallback
+
+    return {"mcp_available": "No", "mcp_url": "", "mcp_note": ""}
 
 
 # --------------------------------------------------------------------------
@@ -402,7 +509,7 @@ def recheck(app_name: str, url: str, first_pass: dict, api_key: str) -> dict:
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
         "response_format": {"type": "json_schema", "json_schema": RECHECK_SCHEMA},
-        "plugins": [{"id": "web"}],
+        "tools": [web_search_tool(max_results=4, search_context_size="low")],
         "max_tokens": 350,
     }
     return call_openrouter_json(payload, api_key)
@@ -449,7 +556,7 @@ def process_one(item: AnalyzeItem, api_key: str) -> dict:
         row["fetch_status"] = fetch_meta.get("status")
         row["gated_hint"] = fetch_meta.get("gated_hint")
 
-        mcp = discover_mcp(app_name, api_key)
+        mcp = discover_mcp(app_name, api_key, product_domain=root_domain(url))
         row["mcp_available"] = mcp.get("mcp_available", "Unknown")
         row["mcp_url"] = mcp.get("mcp_url", "")
         row["mcp_note"] = mcp.get("mcp_note", "")
