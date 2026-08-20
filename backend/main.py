@@ -61,10 +61,9 @@ RECHECK_MODEL = "google/gemini-2.5-flash-lite"
 # other, so this is the main lever on total wall time.
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "5"))
 
-# Page text is capped hard — this is the single biggest input-token cost,
-# and a quickstart/reference page rarely needs more than this to judge
-# auth type and doc depth.
-PAGE_TEXT_CHAR_CAP = 3000
+# Page text cap — biggest single input-token cost. 2000 chars ≈ 500 tokens,
+# enough to determine auth type, gating, and doc quality reliably.
+PAGE_TEXT_CHAR_CAP = 1600
 
 app = FastAPI(title="Doc Research Portal")
 
@@ -233,13 +232,13 @@ def web_search_then_structure(
         "max_tokens": 500,
     }
     raw_findings = call_openrouter(search_payload, api_key)
-    raw_findings = raw_findings[:2000]
+    raw_findings = raw_findings[:1200]  # cap before re-injecting as input tokens
 
     # Step 2: structure that text into the schema, no tools attached.
     structure_payload = {
         "model": model,
         "messages": [
-            {"role": "user", "content": f"{structure_instruction}\n\n--- RESEARCH FINDINGS ---\n{raw_findings}"}
+            {"role": "user", "content": f"{structure_instruction}\n\n---\n{raw_findings}"}
         ],
         "temperature": 0,
         "response_format": {"type": "json_schema", "json_schema": schema},
@@ -287,30 +286,37 @@ def root_domain(url: str) -> str:
 
 
 def discover_url(app_name: str, api_key: str) -> str:
-    prompt = (
-        f'Find the OFFICIAL developer documentation homepage URL for "{app_name}". '
-        f"It must be the official developer/API doc site run by the company itself — "
-        f"not a tutorial, blog, GitHub repo, or third-party site. Return ONLY the raw URL, nothing else."
-    )
+    # Fast guess first — no LLM needed for common patterns
+    slug = app_name.lower().replace(" ", "")
+    guesses = [
+        f"https://developers.{slug}.com",
+        f"https://docs.{slug}.com",
+        f"https://developer.{slug}.com",
+        f"https://{slug}.dev/docs",
+    ]
+    for g in guesses:
+        if verify_url(g):
+            return g
+
+    # Fallback: minimal web search, return URL only
+    prompt = f'Official developer API docs URL for "{app_name}". Return ONLY the URL.'
     payload = {
         "model": DISCOVER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
         "tools": [web_search_tool(max_results=2, search_context_size="low")],
-        "max_tokens": 60,
+        "max_tokens": 40,
     }
     text = call_openrouter(payload, api_key)
     url = extract_url(text) or text.strip()
-
     if verify_url(url):
         return url
 
-    # one retry, telling it the first guess was dead
-    retry_prompt = prompt + f' The URL "{url}" is dead or invalid — find a different, live one.'
-    payload["messages"] = [{"role": "user", "content": retry_prompt}]
+    # one retry
+    payload["messages"] = [{"role": "user", "content": f'"{url}" is dead. Find live official API docs URL for "{app_name}". URL only.'}]
     text2 = call_openrouter(payload, api_key)
     url2 = extract_url(text2) or text2.strip()
-    return url2 if verify_url(url2) else url  # keep best guess even if unverified
+    return url2 if verify_url(url2) else url
 
 
 def fetch_page(url: str) -> dict:
@@ -396,38 +402,28 @@ def classify(app_name: str, url: str, fetch_meta: dict, api_key: str) -> dict:
 
     if has_page_text:
         prompt = (
-            f'Text from the official dev doc page for "{app_name}" ({url}). Based only on this, '
-            f"determine: is it an API doc, what auth method it documents, how constructive the docs "
-            f"are (quickstart/code samples/reference vs thin marketing), and whether access is gated "
-            f"(signup/paid plan/sales).\n\n--- PAGE TEXT ---\n{page_text}"
+            f'Dev doc page for "{app_name}" ({url}):\n\n{page_text}\n\n'
+            f"Classify: API doc? Auth method? Doc quality 1-10? Gated (signup/paid/sales)? Verdict?"
         )
         payload = {
             "model": CLASSIFY_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0,
             "response_format": {"type": "json_schema", "json_schema": CLASSIFY_SCHEMA},
-            "max_tokens": 600,
+            "max_tokens": 400,
         }
         return call_openrouter_json(payload, api_key)
 
-    reason = "looks like a signup/login wall" if fetch_meta.get("gated_hint") else "reason unclear"
-    status_note = f"HTTP {fetch_meta['status']}, {reason}" if fetch_meta.get("status") else "unreachable"
-    search_prompt = (
-        f'The dev doc page for "{app_name}" ({url}) could not be read directly ({status_note}). '
-        f"Search the web to find how developers authenticate to this API and whether access is gated."
-    )
-    structure_instruction = (
-        f'Based on the research findings below about "{app_name}" ({url}), fill in the schema: '
-        f"is it an API doc, what auth method it uses, doc quality, and gating. Set confidence to "
-        f'"Low" since this is search-based, not the primary doc page.'
-    )
+    status_note = f"HTTP {fetch_meta['status']}" if fetch_meta.get("status") else "unreachable"
+    search_prompt = f'"{app_name}" API ({url}, {status_note}): auth method, gating, developer access.'
+    structure_instruction = f'Research on "{app_name}" API. Fill schema. confidence="Low" (search-based).'
     return web_search_then_structure(
         search_prompt=search_prompt,
         structure_instruction=structure_instruction,
         schema=CLASSIFY_SCHEMA,
         api_key=api_key,
         model=CLASSIFY_MODEL,
-        max_results=4,
+        max_results=3,
         search_context_size="low",
     )
 
@@ -472,31 +468,12 @@ MCP_SCHEMA = {
 
 def _mcp_search_pass(app_name: str, api_key: str, exclude_github: bool, product_domain: str = "") -> dict:
     if exclude_github:
-        domain_hint = f' The product\'s own site is around "{product_domain}" — prefer that domain if relevant.' if product_domain else ""
-        search_prompt = (
-            f'Search the web for the OFFICIAL Model Context Protocol (MCP) documentation page for '
-            f'"{app_name}", published on the product\'s OWN website (e.g. a docs.*, developer.*, or '
-            f"help.* subdomain of their own domain) — NOT a GitHub repository, NOT a third-party "
-            f"directory or blog.{domain_hint} Only conclude it's available if you find a real, "
-            f"specific page confirming this on their own site. Do NOT construct or guess a plausible "
-            f"URL — only report one you actually found. If the only source you can find is GitHub or "
-            f"a third party, say clearly that no official docs page was found (that gets checked "
-            f"separately)."
-        )
+        domain_hint = f' Prefer {product_domain}.' if product_domain else ""
+        search_prompt = f'Official MCP server docs page for "{app_name}".{domain_hint} Own site only, real URL.'
     else:
-        search_prompt = (
-            f'Search the web for an MCP (Model Context Protocol) server for "{app_name}" — this time '
-            f"a GitHub repository or third-party listing is acceptable if that's the only source that "
-            f"exists (common for open-source MCP servers with no dedicated doc page). Only conclude "
-            f"it's available if you find a real, specific page confirming it. Do NOT guess a "
-            f"plausible-looking URL."
-        )
+        search_prompt = f'MCP server for "{app_name}". GitHub ok. Real URL only.'
 
-    structure_instruction = (
-        f'Based on the research findings below about MCP support for "{app_name}", fill in the schema: '
-        f"whether an MCP server/integration is available, its exact URL if found (empty string if not "
-        f"found — never invent one), and a short note on the source."
-    )
+    structure_instruction = f'"{app_name}" MCP: fill schema. Empty mcp_url if not found.'
 
     excluded = ["github.com"] if exclude_github else None
     return web_search_then_structure(
@@ -505,7 +482,7 @@ def _mcp_search_pass(app_name: str, api_key: str, exclude_github: bool, product_
         schema=MCP_SCHEMA,
         api_key=api_key,
         model=MCP_MODEL,
-        max_results=3,
+        max_results=2,
         search_context_size="low",
         excluded_domains=excluded,
     )
@@ -519,14 +496,15 @@ def discover_mcp(app_name: str, api_key: str, product_domain: str = "") -> dict:
         result["mcp_note"] = (result.get("mcp_note") or "").strip() or "Official documentation page."
         return result
 
-    # Pass 2: fallback, GitHub allowed, explicitly labeled as a fallback
-    fallback = _mcp_search_pass(app_name, api_key, exclude_github=False)
-    if fallback.get("mcp_available") == "Yes" and fallback.get("mcp_url") and verify_url(fallback["mcp_url"]):
-        note = (fallback.get("mcp_note") or "").strip()
-        fallback["mcp_note"] = f"(No dedicated docs page found) {note}".strip()
-        return fallback
+    # Pass 2: only if pass 1 explicitly found nothing (skip if "Unknown" — not worth 2 more calls)
+    if result.get("mcp_available") == "No":
+        fallback = _mcp_search_pass(app_name, api_key, exclude_github=False)
+        if fallback.get("mcp_available") == "Yes" and fallback.get("mcp_url") and verify_url(fallback["mcp_url"]):
+            note = (fallback.get("mcp_note") or "").strip()
+            fallback["mcp_note"] = f"(GitHub) {note}".strip()
+            return fallback
 
-    return {"mcp_available": "No", "mcp_url": "", "mcp_note": ""}
+    return {"mcp_available": result.get("mcp_available", "Unknown"), "mcp_url": "", "mcp_note": ""}
 
 
 # --------------------------------------------------------------------------
@@ -557,17 +535,11 @@ RECHECK_SCHEMA = {
 
 def recheck(app_name: str, url: str, first_pass: dict, api_key: str) -> dict:
     search_prompt = (
-        f'First research pass on "{app_name}" ({url}) came back Low confidence. It found: '
-        f"auth_type={first_pass['auth_type']}, self_serve={first_pass['self_serve']}, "
-        f"verdict={first_pass['verdict']}, gating_notes=\"{first_pass['gating_notes']}\". "
-        f"Use web search to independently re-verify these three things: auth type, whether it's "
-        f"self-serve, and the overall verdict."
+        f'Verify "{app_name}" API ({url}): auth={first_pass["auth_type"]}, '
+        f'self_serve={first_pass["self_serve"]}, verdict={first_pass["verdict"]}. Correct if wrong.'
     )
     structure_instruction = (
-        f'Based on the research findings below, fill in the schema: if the original findings for '
-        f'"{app_name}" were confirmed, set result="Confirmed" with empty corrected_* fields. If '
-        f'something was wrong, set result="Corrected" and fill in only the corrected_* fields that '
-        f"actually changed, leaving the rest as empty strings."
+        f'Recheck "{app_name}". Confirmed or Corrected? Fill only changed corrected_* fields, rest empty strings.'
     )
     return web_search_then_structure(
         search_prompt=search_prompt,
@@ -575,7 +547,7 @@ def recheck(app_name: str, url: str, first_pass: dict, api_key: str) -> dict:
         schema=RECHECK_SCHEMA,
         api_key=api_key,
         model=RECHECK_MODEL,
-        max_results=4,
+        max_results=2,
         search_context_size="low",
     )
 
