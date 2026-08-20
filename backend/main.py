@@ -196,6 +196,57 @@ def web_search_tool(
     return {"type": "openrouter:web_search", "parameters": params}
 
 
+def web_search_then_structure(
+    search_prompt: str,
+    structure_instruction: str,
+    schema: dict,
+    api_key: str,
+    model: str,
+    max_results: int = 5,
+    search_context_size: str = "medium",
+    excluded_domains: Optional[list[str]] = None,
+) -> dict:
+    """
+    Runs web search and JSON-schema structuring as TWO SEPARATE calls
+    instead of one combined call.
+
+    Why: combining `tools: [web_search]` and `response_format: json_schema`
+    in a single request is unreliable for at least some models/providers
+    behind OpenRouter — the model ends up prioritizing "answer the search"
+    over "match the schema" and returns loose text like
+    `mcp_available="Yes" mcp_url="..."` instead of actual JSON, even after
+    an explicit retry. Splitting into two calls removes that conflict:
+    call 1 only has to search and write a free-text answer (nothing
+    fighting for its attention), call 2 only has to convert that text into
+    the schema (no tool call competing with it).
+    """
+    # Step 1: search, free text, no schema constraint.
+    search_payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": search_prompt}],
+        "temperature": 0,
+        "tools": [web_search_tool(
+            max_results=max_results,
+            search_context_size=search_context_size,
+            excluded_domains=excluded_domains,
+        )],
+        "max_tokens": 500,
+    }
+    raw_findings = call_openrouter(search_payload, api_key)
+
+    # Step 2: structure that text into the schema, no tools attached.
+    structure_payload = {
+        "model": model,
+        "messages": [
+            {"role": "user", "content": f"{structure_instruction}\n\n--- RESEARCH FINDINGS ---\n{raw_findings}"}
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_schema", "json_schema": schema},
+        "max_tokens": 500,
+    }
+    return call_openrouter_json(structure_payload, api_key)
+
+
 # --------------------------------------------------------------------------
 # Live URL verification — nothing gets shown to the user unless it
 # actually resolves. This is what stops hallucinated-looking-plausible
@@ -356,24 +407,28 @@ def classify(app_name: str, url: str, fetch_meta: dict, api_key: str) -> dict:
             "response_format": {"type": "json_schema", "json_schema": CLASSIFY_SCHEMA},
             "max_tokens": 600,
         }
-    else:
-        reason = "looks like a signup/login wall" if fetch_meta.get("gated_hint") else "reason unclear"
-        status_note = f"HTTP {fetch_meta['status']}, {reason}" if fetch_meta.get("status") else "unreachable"
-        prompt = (
-            f'The dev doc page for "{app_name}" ({url}) could not be read directly ({status_note}). '
-            f"Use web search to find how developers authenticate to this API and whether access is "
-            f"gated. Set confidence to \"Low\" since this is search-based, not the primary doc page."
-        )
-        payload = {
-            "model": CLASSIFY_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0,
-            "response_format": {"type": "json_schema", "json_schema": CLASSIFY_SCHEMA},
-            "tools": [web_search_tool(max_results=4, search_context_size="low")],
-            "max_tokens": 600,
-        }
+        return call_openrouter_json(payload, api_key)
 
-    return call_openrouter_json(payload, api_key)
+    reason = "looks like a signup/login wall" if fetch_meta.get("gated_hint") else "reason unclear"
+    status_note = f"HTTP {fetch_meta['status']}, {reason}" if fetch_meta.get("status") else "unreachable"
+    search_prompt = (
+        f'The dev doc page for "{app_name}" ({url}) could not be read directly ({status_note}). '
+        f"Search the web to find how developers authenticate to this API and whether access is gated."
+    )
+    structure_instruction = (
+        f'Based on the research findings below about "{app_name}" ({url}), fill in the schema: '
+        f"is it an API doc, what auth method it uses, doc quality, and gating. Set confidence to "
+        f'"Low" since this is search-based, not the primary doc page.'
+    )
+    return web_search_then_structure(
+        search_prompt=search_prompt,
+        structure_instruction=structure_instruction,
+        schema=CLASSIFY_SCHEMA,
+        api_key=api_key,
+        model=CLASSIFY_MODEL,
+        max_results=4,
+        search_context_size="low",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -417,35 +472,42 @@ MCP_SCHEMA = {
 def _mcp_search_pass(app_name: str, api_key: str, exclude_github: bool, product_domain: str = "") -> dict:
     if exclude_github:
         domain_hint = f' The product\'s own site is around "{product_domain}" — prefer that domain if relevant.' if product_domain else ""
-        prompt = (
+        search_prompt = (
             f'Search the web for the OFFICIAL Model Context Protocol (MCP) documentation page for '
             f'"{app_name}", published on the product\'s OWN website (e.g. a docs.*, developer.*, or '
             f"help.* subdomain of their own domain) — NOT a GitHub repository, NOT a third-party "
-            f"directory or blog.{domain_hint} Only report mcp_available=\"Yes\" if you find a real, "
+            f"directory or blog.{domain_hint} Only conclude it's available if you find a real, "
             f"specific page confirming this on their own site. Do NOT construct or guess a plausible "
-            f'URL — only report one you actually found. If the only source you can find is GitHub or '
-            f'a third party, return mcp_available="No" and an empty mcp_url — that will be checked '
-            f"separately."
+            f"URL — only report one you actually found. If the only source you can find is GitHub or "
+            f"a third party, say clearly that no official docs page was found (that gets checked "
+            f"separately)."
         )
     else:
-        prompt = (
+        search_prompt = (
             f'Search the web for an MCP (Model Context Protocol) server for "{app_name}" — this time '
             f"a GitHub repository or third-party listing is acceptable if that's the only source that "
-            f"exists (common for open-source MCP servers with no dedicated doc page). Only report "
-            f'mcp_available="Yes" with a URL if you find a real, specific page confirming it. Do NOT '
-            f"guess a plausible-looking URL."
+            f"exists (common for open-source MCP servers with no dedicated doc page). Only conclude "
+            f"it's available if you find a real, specific page confirming it. Do NOT guess a "
+            f"plausible-looking URL."
         )
 
+    structure_instruction = (
+        f'Based on the research findings below about MCP support for "{app_name}", fill in the schema: '
+        f"whether an MCP server/integration is available, its exact URL if found (empty string if not "
+        f"found — never invent one), and a short note on the source."
+    )
+
     excluded = ["github.com"] if exclude_github else None
-    payload = {
-        "model": MCP_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0,
-        "response_format": {"type": "json_schema", "json_schema": MCP_SCHEMA},
-        "tools": [web_search_tool(max_results=5, search_context_size="medium", excluded_domains=excluded)],
-        "max_tokens": 250,
-    }
-    return call_openrouter_json(payload, api_key)
+    return web_search_then_structure(
+        search_prompt=search_prompt,
+        structure_instruction=structure_instruction,
+        schema=MCP_SCHEMA,
+        api_key=api_key,
+        model=MCP_MODEL,
+        max_results=5,
+        search_context_size="medium",
+        excluded_domains=excluded,
+    )
 
 
 def discover_mcp(app_name: str, api_key: str, product_domain: str = "") -> dict:
@@ -493,23 +555,28 @@ RECHECK_SCHEMA = {
 
 
 def recheck(app_name: str, url: str, first_pass: dict, api_key: str) -> dict:
-    prompt = (
+    search_prompt = (
         f'First research pass on "{app_name}" ({url}) came back Low confidence. It found: '
         f"auth_type={first_pass['auth_type']}, self_serve={first_pass['self_serve']}, "
         f"verdict={first_pass['verdict']}, gating_notes=\"{first_pass['gating_notes']}\". "
-        f"Use web search to independently re-verify auth_type, self_serve, and verdict. If it matches, "
-        f'return result="Confirmed" with empty corrected_* fields. If wrong, return result="Corrected" '
-        f"and fill in only the corrected_* fields that actually changed."
+        f"Use web search to independently re-verify these three things: auth type, whether it's "
+        f"self-serve, and the overall verdict."
     )
-    payload = {
-        "model": RECHECK_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0,
-        "response_format": {"type": "json_schema", "json_schema": RECHECK_SCHEMA},
-        "tools": [web_search_tool(max_results=4, search_context_size="low")],
-        "max_tokens": 350,
-    }
-    return call_openrouter_json(payload, api_key)
+    structure_instruction = (
+        f'Based on the research findings below, fill in the schema: if the original findings for '
+        f'"{app_name}" were confirmed, set result="Confirmed" with empty corrected_* fields. If '
+        f'something was wrong, set result="Corrected" and fill in only the corrected_* fields that '
+        f"actually changed, leaving the rest as empty strings."
+    )
+    return web_search_then_structure(
+        search_prompt=search_prompt,
+        structure_instruction=structure_instruction,
+        schema=RECHECK_SCHEMA,
+        api_key=api_key,
+        model=RECHECK_MODEL,
+        max_results=4,
+        search_context_size="low",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -614,8 +681,4 @@ def analyze(req: AnalyzeRequest):
 
 @app.get("/")
 def root():
-    # Frontend is hosted separately now (Netlify/Vercel/static host/local
-    # file) and calls this API cross-origin. This route just confirms the
-    # API itself is alive — useful for a quick health check or for Render's
-    # port-scan on deploy.
-    return {"status": "ok", "service": "PiperRube Doc Research Portal", "version": "1.0"}
+    return {"status": "ok", "service": "doc-research-portal-api"}
