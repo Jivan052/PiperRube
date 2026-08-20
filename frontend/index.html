@@ -60,6 +60,13 @@
     letter-spacing:-0.02em;
     margin:0;
   }
+  .header-actions{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:12px;
+    max-width:420px;
+  }
   header p{
     max-width:360px;
     color:var(--ink-soft);
@@ -67,6 +74,110 @@
     margin:0;
     text-align:right;
   }
+  .medium-linkbox{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    width:100%;
+    max-width:360px;
+    padding:12px 14px;
+    border:1px solid var(--ink);
+    background:var(--paper-dim);
+    color:var(--ink);
+    text-decoration:none;
+    position:relative;
+    overflow:hidden;
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .medium-linkbox::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:linear-gradient(100deg, transparent 0%, rgba(17,17,16,.06) 45%, transparent 65%);
+    transform:translateX(-120%);
+    animation:sheen 3.2s ease-in-out infinite;
+    pointer-events:none;
+  }
+  @keyframes sheen{
+    0%,60%{transform:translateX(-120%);}
+    100%{transform:translateX(120%);}
+  }
+  .medium-linkbox:hover{
+    transform:translateY(-1px);
+    box-shadow:3px 3px 0 var(--ink);
+  }
+  .medium-linkbox:visited{color:var(--ink);}
+  .icon-stack{
+    flex:0 0 auto;
+    width:32px;
+    height:32px;
+    display:grid;
+    place-items:center;
+    border:1px solid var(--ink);
+    background:var(--paper);
+    position:relative;
+  }
+  .medium-linkbox svg{
+    width:18px;
+    height:18px;
+    display:block;
+  }
+  .medium-linkbox .link-icon{
+    position:absolute;
+    right:-4px;
+    bottom:-4px;
+    width:13px;
+    height:13px;
+    padding:2px;
+    border:1px solid var(--ink);
+    background:var(--paper);
+    display:grid;
+    place-items:center;
+  }
+  .medium-copy{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    min-width:0;
+  }
+  .medium-text{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    line-height:1.45;
+    letter-spacing:.02em;
+    color:var(--ink);
+  }
+  .token-stat-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .token-bars{
+    display:flex;
+    align-items:flex-end;
+    gap:2px;
+    height:16px;
+    flex:0 0 auto;
+  }
+  .token-bars .bar{
+    width:4px;
+    background:var(--ink-faint);
+    transform-origin:bottom;
+    transform:scaleY(0);
+    animation:growBar .7s cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .token-bars .bar.before{height:16px;background:var(--line-strong);animation-delay:.05s;}
+  .token-bars .bar.after{height:6px;background:var(--ink);animation-delay:.5s;}
+  @keyframes growBar{to{transform:scaleY(1);}}
+  .token-pct{
+    font-family:'JetBrains Mono',monospace;
+    font-weight:700;
+    font-size:13px;
+    color:var(--ink);
+    font-variant-numeric:tabular-nums;
+  }
+  .token-pct::after{content:"%";}
+
   .backend-chip{
     display:inline-flex;
     align-items:center;
@@ -525,6 +636,7 @@
     .row-input{grid-template-columns:1fr;}
     .detail-grid{grid-template-columns:1fr;}
     header{flex-direction:column;align-items:flex-start;}
+    .header-actions{align-items:flex-start;max-width:100%;width:100%;}
     header p{text-align:left;}
     .config-banner input{width:100%;margin:8px 0;}
     .session-section{align-items:stretch;flex-direction:column;gap:8px;}
@@ -542,7 +654,28 @@
         <span class="chip-dot"></span><span id="backendChipLabel">backend checking</span>
       </div>
     </div>
-    <p>Point it at an app name and it reads the real developer docs — auth, MCP support, doc depth, and gating — then ranks what's worth integrating first.</p>
+    <div class="header-actions">
+      <a class="medium-linkbox" href="https://medium.com/@jamadarjivan01/we-were-burning-money-on-llm-tokens-heres-how-we-fixed-it-eb0981988e13" target="_blank" rel="noreferrer">
+        <span class="icon-stack" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M13.54 12a6.77 6.77 0 11-13.54 0 6.77 6.77 0 0113.54 0zM20.96 12c0 3.54-1.51 6.42-3.38 6.42-1.87 0-3.38-2.88-3.38-6.42s1.51-6.42 3.38-6.42 3.38 2.87 3.38 6.42zM24 12c0 3.17-.53 5.75-1.19 5.75-.66 0-1.19-2.57-1.19-5.75s.53-5.75 1.19-5.75S24 8.82 24 12z" fill="currentColor"/>
+          </svg>
+          </span>
+        </span>
+        <span class="medium-copy">
+          <span class="medium-text">We were burning money on LLM tokens. <u>Here's how we fixed it.</u></span>
+          <span class="token-stat-row">
+            <span class="token-bars" aria-hidden="true">
+              <span class="bar before"></span>
+              <span class="bar after"></span>
+            </span>
+            <span class="token-pct" id="tokenPct">0</span>
+            <span class="medium-text" style="color:var(--ink-soft);">token cost cut</span>
+          </span>
+        </span>
+      </a>
+      <p>Point it at an app name and it reads the real developer docs — auth, MCP support, doc depth, and gating — then ranks what's worth integrating first.</p>
+    </div>
   </header>
 
   <!-- Shown automatically if the backend can't be reached at the configured
@@ -661,6 +794,22 @@ let lastResults = []; // for CSV export
 const SESSIONS_KEY = 'doc_research_sessions';
 let sessions = [];
 let activeSessionId = null;
+
+// ---------- token-pct count-up ----------
+(function animateTokenPct(){
+  const el = document.getElementById('tokenPct');
+  if(!el) return;
+  const target = 60;
+  const duration = 900;
+  const start = performance.now();
+  function tick(now){
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(eased * target);
+    if(t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
 
 // ---------- backend reachability check ----------
 async function checkBackend(){
