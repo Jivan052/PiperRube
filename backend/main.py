@@ -64,7 +64,7 @@ CONCURRENCY = int(os.environ.get("CONCURRENCY", "5"))
 # Page text is capped hard — this is the single biggest input-token cost,
 # and a quickstart/reference page rarely needs more than this to judge
 # auth type and doc depth.
-PAGE_TEXT_CHAR_CAP = 6000
+PAGE_TEXT_CHAR_CAP = 3000
 
 app = FastAPI(title="Doc Research Portal")
 
@@ -233,6 +233,7 @@ def web_search_then_structure(
         "max_tokens": 500,
     }
     raw_findings = call_openrouter(search_payload, api_key)
+    raw_findings = raw_findings[:2000]
 
     # Step 2: structure that text into the schema, no tools attached.
     structure_payload = {
@@ -295,7 +296,7 @@ def discover_url(app_name: str, api_key: str) -> str:
         "model": DISCOVER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
-        "tools": [web_search_tool(max_results=5, search_context_size="low")],
+        "tools": [web_search_tool(max_results=2, search_context_size="low")],
         "max_tokens": 60,
     }
     text = call_openrouter(payload, api_key)
@@ -504,8 +505,8 @@ def _mcp_search_pass(app_name: str, api_key: str, exclude_github: bool, product_
         schema=MCP_SCHEMA,
         api_key=api_key,
         model=MCP_MODEL,
-        max_results=5,
-        search_context_size="medium",
+        max_results=3,
+        search_context_size="low",
         excluded_domains=excluded,
     )
 
