@@ -67,6 +67,29 @@
     margin:0;
     text-align:right;
   }
+  .backend-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    margin-top:14px;
+    padding:5px 9px;
+    border:1px solid var(--line-strong);
+    color:var(--ink-soft);
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+  .backend-chip .chip-dot{
+    width:6px;
+    height:6px;
+    border-radius:50%;
+    background:var(--ink-faint);
+  }
+  .backend-chip.online{color:var(--ink);border-color:var(--ink);}
+  .backend-chip.online .chip-dot{background:var(--ink);}
+  .backend-chip.offline{border-style:dashed;}
+  .backend-chip.checking .chip-dot{animation:pulse 1.1s infinite ease-in-out;}
 
   /* ---------- config banner ---------- */
   .config-banner{
@@ -436,6 +459,9 @@
     <div>
       <div class="eyebrow">PiperRube: Doc Research Portal</div>
       <h1>Can we build on this today?</h1>
+      <div class="backend-chip checking" id="backendChip" role="status" aria-live="polite">
+        <span class="chip-dot"></span><span id="backendChipLabel">backend checking</span>
+      </div>
     </div>
     <p>Point it at an app name and it reads the real developer docs — auth, MCP support, doc depth, and gating — then ranks what's worth integrating first.</p>
   </header>
@@ -540,13 +566,21 @@ let lastResults = []; // for CSV export
 // ---------- backend reachability check ----------
 async function checkBackend(){
   const banner = document.getElementById('configBanner');
+  const chip = document.getElementById('backendChip');
+  const chipLabel = document.getElementById('backendChipLabel');
+  chip.className = 'backend-chip checking';
+  chipLabel.textContent = 'backend checking';
   try{
     const resp = await fetch((API_BASE || '') + '/', { method:'GET' });
     if(!resp.ok) throw new Error('bad status');
     banner.classList.remove('show');
+    chip.className = 'backend-chip online';
+    chipLabel.textContent = 'backend online';
   }catch(err){
     document.getElementById('apiBaseInput').value = API_BASE;
     banner.classList.add('show');
+    chip.className = 'backend-chip offline';
+    chipLabel.textContent = 'backend offline';
   }
 }
 document.getElementById('saveApiBaseBtn').addEventListener('click', ()=>{
