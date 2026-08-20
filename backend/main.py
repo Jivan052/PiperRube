@@ -31,7 +31,6 @@ import json
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -39,7 +38,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 # Loads OPENROUTER_API_KEY (and anything else) from a local .env file if
@@ -66,8 +65,6 @@ CONCURRENCY = int(os.environ.get("CONCURRENCY", "5"))
 # and a quickstart/reference page rarely needs more than this to judge
 # auth type and doc depth.
 PAGE_TEXT_CHAR_CAP = 6000
-
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 app = FastAPI(title="Doc Research Portal")
 
@@ -616,8 +613,9 @@ def analyze(req: AnalyzeRequest):
 
 
 @app.get("/")
-def serve_frontend():
-    index_path = FRONTEND_DIR / "index.html"
-    if not index_path.exists():
-        raise HTTPException(404, "frontend/index.html not found")
-    return FileResponse(index_path)
+def root():
+    # Frontend is hosted separately now (Netlify/Vercel/static host/local
+    # file) and calls this API cross-origin. This route just confirms the
+    # API itself is alive — useful for a quick health check or for Render's
+    # port-scan on deploy.
+    return {"status": "ok", "service": "PiperRube Doc Research Portal", "version": "1.0"}
