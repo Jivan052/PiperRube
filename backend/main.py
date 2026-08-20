@@ -38,7 +38,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 # Loads OPENROUTER_API_KEY (and anything else) from a local .env file if
@@ -677,6 +677,36 @@ def analyze(req: AnalyzeRequest):
     except RuntimeError as e:
         raise HTTPException(500, str(e))
     return StreamingResponse(run_pipeline(req.items), media_type="application/x-ndjson")
+
+
+@app.get("/api/google-sheet", response_class=PlainTextResponse)
+def google_sheet(url: str):
+    match = re.match(
+        r"^https?://docs\.google\.com/spreadsheets/d/([A-Za-z0-9_-]+)(?:/[^?]*)?",
+        url.strip(),
+    )
+    if not match:
+        raise HTTPException(400, "Enter a valid Google Sheets URL")
+
+    sheet_id = match.group(1)
+    parsed = urlparse(url)
+    query = dict(part.split("=", 1) for part in parsed.query.split("&") if "=" in part)
+    fragment_gid = re.search(r"(?:^|&)gid=(\d+)", parsed.fragment)
+    gid = query.get("gid", "") or (fragment_gid.group(1) if fragment_gid else "")
+    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    if gid.isdigit():
+        export_url += f"&gid={gid}"
+
+    try:
+        response = requests.get(export_url, timeout=20)
+    except requests.RequestException as exc:
+        raise HTTPException(502, f"Could not fetch Google Sheet: {exc}")
+    if not response.ok:
+        raise HTTPException(
+            502,
+            "Google Sheet could not be read. Set sharing to Anyone with the link.",
+        )
+    return PlainTextResponse(response.text, media_type="text/csv")
 
 
 @app.get("/")

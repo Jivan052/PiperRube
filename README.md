@@ -47,8 +47,9 @@ there's nothing separate to run or configure for CORS.
 
 - **Manual entry** — add rows of app name (+ optional doc URL). Leave the URL
   blank and it'll be discovered for you.
-- **Import CSV** — a CSV with `app_name,url` columns (header optional, `url`
-  can be blank per row).
+- **Google Sheet** — paste a Google Sheets URL and click **Load sheet**. The
+  sheet must be shared as **Anyone with the link** and use `app_name,url`
+  columns (header optional, `url` can be blank per row).
 - Hit **Run research**. Results stream in live, then auto-sort by priority
   score once the batch finishes.
 - Click any row to expand gating notes, MCP notes, required fields, doc

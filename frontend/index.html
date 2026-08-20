@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Doc Research Portal</title>
+<title>PiperRube - Doc Research Portal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -126,6 +126,49 @@
     border-radius:var(--radius);
   }
 
+  /* ---------- saved sessions ---------- */
+  .session-section{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px 14px;
+    margin-bottom:24px;
+    border:1px solid var(--line);
+    background:var(--paper-dim);
+  }
+  .session-section label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    white-space:nowrap;
+  }
+  .session-section select{
+    flex:1;
+    min-width:0;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    padding:7px 9px;
+    background:var(--paper);
+    border:1px solid var(--line-strong);
+    border-radius:var(--radius);
+    color:var(--ink);
+  }
+  .session-section select:focus{outline:none;border-color:var(--ink);}
+  .new-session-btn{
+    flex:0 0 auto;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    background:var(--ink);
+    color:var(--paper);
+    border:1px solid var(--ink);
+    padding:8px 12px;
+    cursor:pointer;
+    border-radius:var(--radius);
+  }
+  .new-session-btn:hover{opacity:.82;}
+
   /* ---------- input panel ---------- */
   .panel{
     border:1px solid var(--ink);
@@ -196,6 +239,7 @@
     margin-top:4px;
   }
   .add-row:hover{border-color:var(--ink);color:var(--ink);}
+  .add-row:disabled{opacity:.45;cursor:default;}
 
   .csv-drop{
     border:1px dashed var(--line-strong);
@@ -207,7 +251,8 @@
     cursor:pointer;
   }
   .csv-drop:hover{border-color:var(--ink);}
-  .csv-drop input{display:none;}
+  .csv-drop input[type=file]{display:none;}
+  .csv-drop input[type=text]{display:block;max-width:620px;margin:16px auto 10px;}
   .csv-note{
     font-family:'JetBrains Mono',monospace;
     font-size:11px;
@@ -449,6 +494,7 @@
     header{flex-direction:column;align-items:flex-start;}
     header p{text-align:left;}
     .config-banner input{width:100%;margin:8px 0;}
+    .session-section{align-items:stretch;flex-direction:column;gap:8px;}
   }
 </style>
 </head>
@@ -477,10 +523,16 @@
     <button id="saveApiBaseBtn">Save</button>
   </div>
 
+  <section class="session-section" aria-label="Saved research sessions">
+    <label for="sessionSelect">Previous sessions</label>
+    <select id="sessionSelect"></select>
+    <button class="new-session-btn" id="newSessionBtn" type="button">+ New session</button>
+  </section>
+
   <div class="panel">
     <div class="panel-head">
       <button class="tab active" data-tab="manual">Manual entry</button>
-      <button class="tab" data-tab="csv">Import CSV</button>
+      <button class="tab" data-tab="sheet">Google Sheet</button>
     </div>
 
     <div class="panel-body" id="manualPanel">
@@ -488,12 +540,14 @@
       <button class="add-row" id="addRowBtn">+ add app</button>
     </div>
 
-    <div class="panel-body hidden" id="csvPanel">
-      <label class="csv-drop" for="csvInput">
-        <div>Drop a CSV here, or click to choose one</div>
-        <div class="csv-note">Columns: <strong>app_name</strong>, <strong>url</strong> (url optional — left blank, it gets discovered) &nbsp;·&nbsp; <span id="csvFileName">no file selected</span></div>
-        <input type="file" id="csvInput" accept=".csv" />
-      </label>
+    <div class="panel-body hidden" id="sheetPanel">
+      <div class="csv-drop">
+        <div>Paste a Google Sheet link to import it automatically</div>
+        <input type="text" id="sheetUrlInput" placeholder="https://docs.google.com/spreadsheets/d/..." />
+        <button class="add-row" id="loadSheetBtn" type="button" disabled>Fetch sheet</button>
+        <div class="csv-note">The sheet must be shared as <strong>Anyone with the link</strong>. Columns: <strong>app_name</strong>, <strong>url</strong> (url optional)</div>
+        <div class="csv-note" id="sheetStatus"></div>
+      </div>
     </div>
 
     <div class="panel-foot">
@@ -560,8 +614,11 @@ const DEFAULT_API_BASE = 'https://piperrube-1.onrender.com'; // <-- put your Ren
 let API_BASE = localStorage.getItem('doc_research_api_base') || DEFAULT_API_BASE;
 
 let rowCount = 0;
-let csvItems = null;
+let sheetItems = null;
 let lastResults = []; // for CSV export
+const SESSIONS_KEY = 'doc_research_sessions';
+let sessions = [];
+let activeSessionId = null;
 
 // ---------- backend reachability check ----------
 async function checkBackend(){
@@ -591,15 +648,144 @@ document.getElementById('saveApiBaseBtn').addEventListener('click', ()=>{
 });
 checkBackend();
 
+// ---------- saved research sessions ----------
+function newSession(){
+  const now = Date.now();
+  return {
+    id: String(now) + '-' + Math.random().toString(36).slice(2, 8),
+    createdAt: now,
+    updatedAt: now,
+    manualItems: [],
+    sheetItems: null,
+    sheetUrl: '',
+    activeTab: 'manual',
+    results: []
+  };
+}
+
+function persistSessions(){
+  try{
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.slice(0, 25)));
+  }catch(err){
+    console.warn('Could not save research session', err);
+  }
+}
+
+function renderSessionOptions(){
+  const select = document.getElementById('sessionSelect');
+  select.innerHTML = sessions.map(session=>{
+    const date = new Date(session.updatedAt).toLocaleString([], {dateStyle:'medium', timeStyle:'short'});
+    const resultCount = (session.results || []).length;
+    return `<option value="${escapeAttr(session.id)}">${escapeHtml(date)} · ${resultCount} result${resultCount===1?'':'s'}</option>`;
+  }).join('');
+  select.value = activeSessionId || '';
+}
+
+function manualItems(){
+  const items = [];
+  document.querySelectorAll('#rowsContainer .row-input').forEach(row=>{
+    const app_name = row.querySelector('.app-input').value.trim();
+    const url = row.querySelector('.url-input').value.trim();
+    if(app_name) items.push({app_name, url: url || null});
+  });
+  return items;
+}
+
+function saveCurrentSession(){
+  const session = sessions.find(item=>item.id === activeSessionId);
+  if(!session) return;
+  session.manualItems = manualItems();
+  session.sheetItems = sheetItems;
+  session.sheetUrl = document.getElementById('sheetUrlInput').value.trim();
+  session.activeTab = document.querySelector('.tab.active').dataset.tab;
+  session.results = lastResults;
+  session.updatedAt = Date.now();
+  persistSessions();
+  renderSessionOptions();
+}
+
+function setActiveTab(which){
+  document.querySelectorAll('.tab').forEach(tab=>{
+    tab.classList.toggle('active', tab.dataset.tab===which);
+  });
+  document.getElementById('manualPanel').classList.toggle('hidden', which!=='manual');
+  document.getElementById('sheetPanel').classList.toggle('hidden', which!=='sheet');
+  updateRunState();
+}
+
+function restoreSession(session){
+  activeSessionId = session.id;
+  document.getElementById('rowsContainer').innerHTML = '';
+  rowCount = 0;
+  const savedManualItems = session.manualItems || [];
+  if(savedManualItems.length){
+    savedManualItems.forEach(item=>addRow(item.app_name, item.url || ''));
+  }else{
+    addRow(); addRow(); addRow();
+  }
+  sheetItems = session.sheetItems || null;
+  document.getElementById('sheetUrlInput').value = session.sheetUrl || '';
+  document.getElementById('loadSheetBtn').disabled = !(session.sheetUrl || '').trim();
+  document.getElementById('sheetStatus').textContent = sheetItems
+    ? `${sheetItems.length} app${sheetItems.length===1?'':'s'} imported`
+    : '';
+  setActiveTab(session.activeTab || 'manual');
+  lastResults = session.results || [];
+  if(lastResults.length){
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('resultsSection').style.display = 'block';
+    populateFilters();
+    applyFiltersAndRender();
+    document.getElementById('statusLine').textContent = `loaded ${lastResults.length} saved result${lastResults.length===1?'':'s'}.`;
+  }else{
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('resultsSection').style.display = 'none';
+    document.getElementById('resultsBody').innerHTML = '';
+    document.getElementById('statusLine').textContent = '';
+  }
+  renderSessionOptions();
+  updateRunState();
+}
+
+function createNewSession(){
+  saveCurrentSession();
+  const session = newSession();
+  sessions.unshift(session);
+  restoreSession(session);
+  saveCurrentSession();
+}
+
+function initializeSessions(){
+  try{
+    const saved = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]');
+    sessions = Array.isArray(saved) ? saved : [];
+  }catch(err){
+    sessions = [];
+  }
+  if(!sessions.length){
+    const session = newSession();
+    session.manualItems = manualItems();
+    sessions = [session];
+    activeSessionId = session.id;
+    persistSessions();
+  }else{
+    restoreSession(sessions[0]);
+  }
+  renderSessionOptions();
+}
+
+document.getElementById('sessionSelect').addEventListener('change', event=>{
+  saveCurrentSession();
+  const session = sessions.find(item=>item.id === event.target.value);
+  if(session) restoreSession(session);
+});
+document.getElementById('newSessionBtn').addEventListener('click', createNewSession);
+
 // ---------- tabs ----------
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click', ()=>{
-    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-    tab.classList.add('active');
-    const which = tab.dataset.tab;
-    document.getElementById('manualPanel').classList.toggle('hidden', which!=='manual');
-    document.getElementById('csvPanel').classList.toggle('hidden', which!=='csv');
-    updateRunState();
+    setActiveTab(tab.dataset.tab);
+    saveCurrentSession();
   });
 });
 
@@ -613,8 +799,8 @@ function addRow(appVal='', urlVal=''){
     <input type="text" placeholder="Doc URL (optional — auto-discovered if blank)" class="url-input" value="${escapeAttr(urlVal)}">
     <button class="remove-row" title="remove">×</button>
   `;
-  div.querySelector('.remove-row').addEventListener('click', ()=>{ div.remove(); updateRunState(); });
-  div.querySelectorAll('input').forEach(i=>i.addEventListener('input', updateRunState));
+  div.querySelector('.remove-row').addEventListener('click', ()=>{ div.remove(); updateRunState(); saveCurrentSession(); });
+  div.querySelectorAll('input').forEach(i=>i.addEventListener('input', ()=>{ updateRunState(); saveCurrentSession(); }));
   document.getElementById('rowsContainer').appendChild(div);
   updateRunState();
 }
@@ -623,18 +809,42 @@ addRow(); addRow(); addRow();
 
 function escapeAttr(s){ return String(s).replace(/"/g,'&quot;'); }
 
-// ---------- csv ----------
-document.getElementById('csvInput').addEventListener('change', (e)=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  document.getElementById('csvFileName').textContent = file.name;
-  const reader = new FileReader();
-  reader.onload = () => {
-    csvItems = parseCsv(reader.result);
-    updateRunState();
-  };
-  reader.readAsText(file);
+// ---------- Google Sheet import ----------
+document.getElementById('loadSheetBtn').addEventListener('click', loadGoogleSheet);
+document.getElementById('sheetUrlInput').addEventListener('input', event=>{
+  const hasUrl = event.target.value.trim().length > 0;
+  document.getElementById('loadSheetBtn').disabled = !hasUrl;
+  sheetItems = null;
+  document.getElementById('sheetStatus').textContent = hasUrl ? 'ready to fetch' : '';
+  updateRunState();
+  saveCurrentSession();
 });
+
+async function loadGoogleSheet(){
+  const input = document.getElementById('sheetUrlInput');
+  const button = document.getElementById('loadSheetBtn');
+  const status = document.getElementById('sheetStatus');
+  const url = input.value.trim();
+  if(!url) return;
+  button.disabled = true;
+  status.textContent = 'loading sheet…';
+  try{
+    const resp = await fetch((API_BASE || '') + '/api/google-sheet?url=' + encodeURIComponent(url));
+    if(!resp.ok) throw new Error(await resp.text() || `HTTP ${resp.status}`);
+    sheetItems = parseCsv(await resp.text());
+    if(sheetItems.length===0) throw new Error('No app rows found');
+    status.textContent = `${sheetItems.length} app${sheetItems.length===1?'':'s'} imported`;
+    updateRunState();
+    saveCurrentSession();
+  }catch(err){
+    sheetItems = null;
+    status.textContent = 'Could not load sheet: ' + err.message;
+    updateRunState();
+    saveCurrentSession();
+  }finally{
+    button.disabled = false;
+  }
+}
 
 function parseCsv(text){
   const lines = text.split(/\r?\n/).filter(l=>l.trim().length>0);
@@ -652,8 +862,8 @@ function parseCsv(text){
 // ---------- run state ----------
 function currentItems(){
   const activeTab = document.querySelector('.tab.active').dataset.tab;
-  if(activeTab==='csv'){
-    return csvItems || [];
+  if(activeTab==='sheet'){
+    return sheetItems || [];
   }
   const items = [];
   document.querySelectorAll('#rowsContainer .row-input').forEach(row=>{
@@ -677,11 +887,14 @@ async function runResearch(){
   const items = currentItems();
   if(items.length===0) return;
 
+  saveCurrentSession();
+
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('resultsSection').style.display = 'block';
   const body = document.getElementById('resultsBody');
   body.innerHTML = '';
   lastResults = [];
+  saveCurrentSession();
 
   const statusLine = document.getElementById('statusLine');
   const runBtn = document.getElementById('runBtn');
@@ -724,6 +937,7 @@ async function runResearch(){
         const obj = JSON.parse(line);
         renderRow(obj);
         lastResults.push(obj);
+        saveCurrentSession();
         done++;
         statusLine.innerHTML = `<span class="dot"></span>researching ${done}/${items.length}…`;
       }
@@ -732,11 +946,13 @@ async function runResearch(){
       const obj = JSON.parse(buffer);
       renderRow(obj);
       lastResults.push(obj);
+      saveCurrentSession();
     }
 
     statusLine.textContent = `done — ${lastResults.length} app${lastResults.length===1?'':'s'} researched, sorted by integration priority.`;
     populateFilters();
     applyFiltersAndRender();
+    saveCurrentSession();
   }catch(err){
     statusLine.textContent = 'error: ' + err.message;
     checkBackend();
@@ -914,6 +1130,8 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   a.click();
 });
 
+window.addEventListener('beforeunload', saveCurrentSession);
+initializeSessions();
 updateRunState();
 </script>
 </body>
