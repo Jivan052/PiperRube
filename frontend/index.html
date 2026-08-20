@@ -253,6 +253,39 @@
   .csv-drop:hover{border-color:var(--ink);}
   .csv-drop input[type=file]{display:none;}
   .csv-drop input[type=text]{display:block;max-width:620px;margin:16px auto 10px;}
+  .sheet-preview{
+    margin-top:20px;
+    border-top:1px solid var(--line);
+    padding-top:16px;
+  }
+  .sheet-preview.hidden{display:none;}
+  .sheet-preview-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:8px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+  .sheet-preview-head strong{
+    color:var(--ink);
+    font-weight:500;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+  .sheet-preview-scroll{max-height:240px;overflow:auto;border:1px solid var(--line);}
+  .sheet-preview table{width:100%;border-collapse:collapse;background:var(--paper);}
+  .sheet-preview th,.sheet-preview td{
+    text-align:left;
+    padding:7px 9px;
+    border-bottom:1px solid var(--line);
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+  }
+  .sheet-preview th{color:var(--ink-faint);font-weight:500;text-transform:uppercase;}
+  .sheet-preview td{color:var(--ink-soft);}
+  .sheet-preview td:first-child{color:var(--ink);font-weight:600;}
   .csv-note{
     font-family:'JetBrains Mono',monospace;
     font-size:11px;
@@ -547,6 +580,15 @@
         <button class="add-row" id="loadSheetBtn" type="button" disabled>Fetch sheet</button>
         <div class="csv-note">The sheet must be shared as <strong>Anyone with the link</strong>. Columns: <strong>app_name</strong>, <strong>url</strong> (url optional)</div>
         <div class="csv-note" id="sheetStatus"></div>
+        <div class="sheet-preview hidden" id="sheetPreview">
+          <div class="sheet-preview-head"><strong>Imported apps</strong><span id="sheetPreviewCount"></span></div>
+          <div class="sheet-preview-scroll">
+            <table>
+              <thead><tr><th>App name</th><th>Doc URL</th></tr></thead>
+              <tbody id="sheetPreviewBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -729,6 +771,7 @@ function restoreSession(session){
   document.getElementById('sheetStatus').textContent = sheetItems
     ? `${sheetItems.length} app${sheetItems.length===1?'':'s'} imported`
     : '';
+  renderSheetPreview(sheetItems);
   setActiveTab(session.activeTab || 'manual');
   lastResults = session.results || [];
   if(lastResults.length){
@@ -816,6 +859,7 @@ document.getElementById('sheetUrlInput').addEventListener('input', event=>{
   document.getElementById('loadSheetBtn').disabled = !hasUrl;
   sheetItems = null;
   document.getElementById('sheetStatus').textContent = hasUrl ? 'ready to fetch' : '';
+  renderSheetPreview(null);
   updateRunState();
   saveCurrentSession();
 });
@@ -834,16 +878,38 @@ async function loadGoogleSheet(){
     sheetItems = parseCsv(await resp.text());
     if(sheetItems.length===0) throw new Error('No app rows found');
     status.textContent = `${sheetItems.length} app${sheetItems.length===1?'':'s'} imported`;
+    renderSheetPreview(sheetItems);
     updateRunState();
     saveCurrentSession();
   }catch(err){
     sheetItems = null;
     status.textContent = 'Could not load sheet: ' + err.message;
+    renderSheetPreview(null);
     updateRunState();
     saveCurrentSession();
   }finally{
     button.disabled = false;
   }
+}
+
+function renderSheetPreview(items){
+  const preview = document.getElementById('sheetPreview');
+  const body = document.getElementById('sheetPreviewBody');
+  const count = document.getElementById('sheetPreviewCount');
+  if(!items || items.length===0){
+    preview.classList.add('hidden');
+    body.innerHTML = '';
+    count.textContent = '';
+    return;
+  }
+  const visibleItems = items.slice(0, 50);
+  body.innerHTML = visibleItems.map(item=>`
+    <tr><td>${escapeHtml(item.app_name)}</td><td>${escapeHtml(item.url || 'Auto-discover')}</td></tr>
+  `).join('');
+  count.textContent = items.length > visibleItems.length
+    ? `${items.length} apps · showing first ${visibleItems.length}`
+    : `${items.length} app${items.length===1?'':'s'}`;
+  preview.classList.remove('hidden');
 }
 
 function parseCsv(text){
