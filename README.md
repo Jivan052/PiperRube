@@ -5,7 +5,7 @@ an app name (or a name + doc URL), and it researches the real developer docs —
 auth type, MCP support, how constructive the docs are, whether access is
 gated, and a buildability verdict — then ranks everything by an integration
 priority score, the same way the CompR case study does it.
-
+<img width="606" height="662" alt="Screenshot 2026-08-20 at 5 20 01 PM" src="https://github.com/user-attachments/assets/79963be7-e830-4d37-9572-ef49530f23f9" />
 ## What it does per apps
 
 1. **Discover** — if no URL is given, asks OpenRouter (with web search) for
